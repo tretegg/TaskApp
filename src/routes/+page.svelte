@@ -18,6 +18,7 @@
   
   import { browser } from '$app/environment';
   import RecurringTaskModal from '$lib/components/RecurringTaskModal.svelte';
+  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import { onMount } from 'svelte';
 
   // --- Types ---
@@ -44,25 +45,24 @@
 
   // --- State ---
   let currentDate = new Date();
-  
   let tasks: Task[] = [];
-  
-  // NEW: A flag to prevent saving empty data over your real data
   let isLoaded = false;
   
   let newTaskTitle = '';
   let newSubTaskTitles: Record<string, string> = {}; 
   let activeSubTaskInput: string | null = null; 
   let selectedDate: Date | null = new Date();
-
-  // Modal State
+  
+  // Modal States
   let showRecurringModal = false;
+  let showDeleteModal = false;
+  let taskToDeleteId: string | null = null; 
 
   // --- Reactivity ---
   $: days = generateCalendar(currentDate);
   $: selectedDayTasks = tasks.filter(t => selectedDate && isSameDay(t.date, selectedDate));
 
-  // --- LOAD Data ---
+  // --- Load / Save ---
   onMount(() => {
     if (browser) {
       const saved = localStorage.getItem('liquid-calendar-tasks');
@@ -75,26 +75,19 @@
         } catch (e) {
           console.error("Could not load tasks", e);
         }
-      } else {
-         // Optional: Add default tasks only if it's the first time ever
-         // tasks = [... defaults ...];
       }
-      
-      // CRITICAL: Mark as loaded so the save logic can start working
       isLoaded = true;
     }
   });
   
-  // --- SAVE Data ---
-  // FIX: Added '&& isLoaded' to prevent overwriting data on refresh
   $: if (browser && isLoaded) {
       localStorage.setItem('liquid-calendar-tasks', JSON.stringify(tasks));
   }
 
+  // --- Functions ---
   function generateCalendar(date: Date): CalendarDay[] {
     const start = startOfWeek(startOfMonth(date));
     const end = endOfWeek(endOfMonth(date));
-
     return eachDayOfInterval({ start, end }).map((day) => ({
       date: day,
       isCurrentMonth: isSameMonth(day, date),
@@ -110,7 +103,6 @@
     return { dayTasks, total, completed, progress };
   }
 
-  // --- Actions ---
   function changeMonth(amount: number) {
     currentDate = addMonths(currentDate, amount);
   }
@@ -130,6 +122,20 @@
     newTaskTitle = '';
   }
 
+  function requestDeleteTask(e: Event, taskId: string) {
+    e.stopPropagation();
+    taskToDeleteId = taskId;
+    showDeleteModal = true;
+  }
+
+  function confirmDeleteTask() {
+    if (taskToDeleteId) {
+        tasks = tasks.filter(t => t.id !== taskToDeleteId);
+        taskToDeleteId = null;
+        showDeleteModal = false;
+    }
+  }
+
   function handleInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault(); 
@@ -139,11 +145,9 @@
 
   function handleRecurringCreate(event: CustomEvent<{ title: string; days: number[] }>) {
     const { title, days: selectedDays } = event.detail;
-    
     const start = new Date();
     const end = addYears(start, 1);
     const interval = eachDayOfInterval({ start, end });
-
     const newTasks: Task[] = [];
 
     interval.forEach(date => {
@@ -159,7 +163,6 @@
         });
       }
     });
-
     tasks = [...tasks, ...newTasks];
   }
 
@@ -178,9 +181,7 @@
     };
 
     tasks = tasks.map(t => {
-      if (t.id === taskId) {
-        return { ...t, subtasks: [...t.subtasks, newSub] };
-      }
+      if (t.id === taskId) { return { ...t, subtasks: [...t.subtasks, newSub] }; }
       return t;
     });
 
@@ -210,142 +211,102 @@
   }
 </script>
 
-<div class="min-h-screen animated-gradient-bg font-sans text-white relative selection:bg-cyan-500/30 overflow-y-auto lg:overflow-hidden">
+<div class="h-[100dvh] w-screen animated-gradient-bg font-sans text-white relative selection:bg-cyan-500/30 overflow-hidden flex flex-col lg:flex-row lg:p-8 lg:gap-8">
   
-  <main class="relative z-10 container mx-auto p-4 lg:p-8 flex flex-col lg:flex-row gap-6 lg:h-screen">
-    
-    <div class="flex-1 flex flex-col bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl ring-1 ring-white/5">
+  <section class="flex-shrink-0 lg:flex-1 lg:h-full flex flex-col bg-white/5 backdrop-blur-xl border-b lg:border border-white/10 lg:rounded-3xl shadow-2xl z-20">
       
-      <div class="flex justify-between items-center p-4 lg:p-6 border-b border-white/5">
-        <h1 class="text-xl lg:text-2xl font-bold tracking-tight text-white/90 drop-shadow-md">
+      <div class="flex justify-between items-center p-3 pt-6 lg:p-6 border-b border-white/5">
+        <h1 class="text-lg lg:text-2xl font-bold tracking-tight text-white/90 drop-shadow-md">
           {format(currentDate, 'MMMM yyyy')}
         </h1>
         <div class="flex gap-2">
-          <button on:click={() => changeMonth(-1)} class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:scale-105 transition-all text-white/70 active:bg-white/20">&lt;</button>
-          <button on:click={() => changeMonth(1)} class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:scale-105 transition-all text-white/70 active:bg-white/20">&gt;</button>
+          <button on:click={() => changeMonth(-1)} class="w-8 h-8 lg:w-10 lg:h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 active:bg-white/20 transition-all">&lt;</button>
+          <button on:click={() => changeMonth(1)} class="w-8 h-8 lg:w-10 lg:h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 active:bg-white/20 transition-all">&gt;</button>
         </div>
       </div>
 
       <div class="grid grid-cols-7 border-b border-white/5 bg-white/[0.02]">
         {#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as day}
-          <div class="py-2 lg:py-3 text-center text-[10px] lg:text-xs font-semibold uppercase tracking-widest text-white/40">{day}</div>
+          <div class="py-1.5 lg:py-2 text-center text-[10px] lg:text-xs font-semibold uppercase tracking-widest text-white/40">{day}</div>
         {/each}
       </div>
 
       <div class="grid grid-cols-7 flex-1 auto-rows-fr bg-white/[0.02]">
-        {#each days as day}
+        {#each days as day, index}
           {@const { dayTasks, total, completed, progress } = getDayStats(day.date, tasks)}
-          
           {@const isSelected = selectedDate && isSameDay(day.date, selectedDate)}
           {@const isCompleted = progress === 100 && total > 0}
           {@const isPast = isBefore(day.date, startOfToday())}
           {@const isMissed = isPast && total > 0 && !isCompleted}
           
+          {@const isTopLeft = index === 0}
+          {@const isTopRight = index === 6}
+
           <button
             on:click={() => selectDay(day.date)}
             class="
-              group relative border-r border-b transition-all duration-300 text-left flex flex-col gap-0.5 lg:gap-1 
-              min-h-[70px] lg:min-h-[100px] p-1 lg:p-3
-              hover:bg-white/5 focus:outline-none overflow-hidden
+              group relative border-r border-b border-white/5 transition-all duration-200 text-left flex flex-col gap-0.5 lg:gap-1 
+              /* CHANGED: From 14dvh to 8dvh for mobile shortness */
+              h-[8dvh] lg:h-auto lg:min-h-[100px] p-1 lg:p-3
+              active:bg-white/5 focus:outline-none overflow-hidden
               {day.isCurrentMonth ? 'text-white/90' : 'text-white/20 bg-black/10'}
-              
+              {isTopLeft ? 'lg:rounded-tl-2xl' : ''} 
+              {isTopRight ? 'lg:rounded-tr-2xl' : ''}
               {isSelected 
-                ? '!bg-white/10 border-white/20 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]' 
+                ? '!bg-white/10 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]' 
                 : isMissed
-                  ? 'bg-red-500/5 border-red-500/20 shadow-[inset_0_0_15px_rgba(239,68,68,0.05)]'
+                  ? 'bg-red-500/5 shadow-[inset_0_0_15px_rgba(239,68,68,0.05)]'
                   : isCompleted 
-                    ? 'bg-emerald-500/5 border-emerald-500/20 shadow-[inset_0_0_15px_rgba(16,185,129,0.05)]'
-                    : 'border-white/5'
+                    ? 'bg-emerald-500/5 shadow-[inset_0_0_15px_rgba(16,185,129,0.05)]'
+                    : ''
               }
             "
           >
             <div class="flex justify-between w-full mb-1 relative z-10">
               <span class="
-                text-xs lg:text-sm font-medium w-5 h-5 lg:w-6 lg:h-6 flex items-center justify-center rounded-full
-                {day.isToday ? 'bg-cyan-500/50 text-white shadow-[0_0_5px_rgba(6,182,212,0.3)]' : ''}
+                text-[10px] lg:text-sm font-medium w-5 h-5 lg:w-6 lg:h-6 flex items-center justify-center rounded-full
+                {day.isToday ? 'bg-cyan-500/50 text-white shadow-[0_0_8px_rgba(6,182,212,0.4)]' : ''}
               ">
                 {format(day.date, 'd')}
               </span>
 
               {#if isCompleted}
-                <div class="animate-in fade-in zoom-in duration-300">
-                  <div class="w-4 h-4 lg:w-6 lg:h-6 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
-                    <svg class="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                  </div>
-                </div>
+                 <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.8)] mr-1 mt-1"></div>
               {:else if isMissed}
-                <div class="animate-in fade-in zoom-in duration-300">
-                  <div class="w-4 h-4 lg:w-6 lg:h-6 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
-                    <svg class="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5 text-red-400/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                  </div>
-                </div>
+                 <div class="w-1.5 h-1.5 rounded-full bg-red-400 shadow-[0_0_5px_rgba(248,113,113,0.8)] mr-1 mt-1"></div>
               {/if}
             </div>
 
-            <div class="hidden lg:block flex-1 w-full space-y-0.5 lg:space-y-1 overflow-hidden relative z-10">
-              {#each dayTasks.slice(0, 3) as task}
-                <div class="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                  <div class="w-1 h-1 lg:w-1.5 lg:h-1.5 rounded-full flex-shrink-0 transition-colors duration-300 {task.completed ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.6)]' : 'bg-pink-400'}"></div>
-                  <span class="text-[9px] lg:text-[10px] truncate w-full transition-all duration-300 {task.completed ? 'line-through text-white/30' : 'text-white/70'}">
-                    {task.title}
-                  </span>
+            <div class="flex flex-wrap gap-0.5 content-end mt-auto mb-1 px-0.5">
+              {#each dayTasks.slice(0, 5) as task}
+                <div class="w-1 h-1 lg:w-1.5 lg:h-1.5 rounded-full transition-colors duration-300
+                  {task.completed ? 'bg-emerald-400/80' : 'bg-pink-400/80'}">
                 </div>
               {/each}
-              {#if total > 3}
-                <div class="text-[8px] lg:text-[9px] text-white/30 pl-2 lg:pl-3">+{total - 3} more</div>
+              {#if total > 5}
+                <div class="w-1 h-1 lg:w-1.5 lg:h-1.5 rounded-full bg-white/20"></div>
               {/if}
             </div>
-
-            <div class="lg:hidden flex flex-wrap gap-1 content-end mt-auto mb-2 px-1">
-              {#each dayTasks.slice(0, 8) as task}
-                <div class="w-1.5 h-1.5 rounded-full transition-colors duration-300
-                  {task.completed ? 'bg-green-400/80 shadow-[0_0_4px_rgba(74,222,128,0.5)]' : 'bg-pink-400/80'}">
-                </div>
-              {/each}
-              {#if total > 8}
-                <div class="w-1.5 h-1.5 rounded-full bg-white/20"></div>
-              {/if}
-            </div>
-
-            {#if total > 0}
-              <div class="absolute bottom-1.5 lg:bottom-3 left-1.5 lg:left-3 right-1.5 lg:right-3 h-0.5 lg:h-1 bg-white/10 rounded-full overflow-hidden z-10">
-                <div 
-                  class="h-full rounded-full transition-all duration-500 ease-out 
-                  {progress === 100 ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]' : ''}
-                  {isMissed ? 'bg-red-400/50' : ''}
-                  {!isMissed && progress < 100 ? 'bg-gradient-to-r from-pink-500 to-purple-500' : ''}" 
-                  style="width: {progress}%"
-                ></div>
-              </div>
-            {/if}
 
             {#if isSelected}
-              <div class="absolute inset-0 border-2 border-white/20 pointer-events-none z-20"></div>
+              <div class="absolute inset-0 border-2 border-white/30 pointer-events-none z-20"></div>
             {/if}
           </button>
         {/each}
       </div>
-    </div>
+  </section>
 
-    <div class="w-full lg:w-[450px] h-[600px] lg:h-auto flex flex-col bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl ring-1 ring-white/5 p-4 lg:p-6 mb-8 lg:mb-0">
+  <section class="flex-1 flex flex-col bg-white/5 backdrop-blur-xl lg:border lg:border-white/10 lg:rounded-3xl shadow-2xl z-10 min-h-0">
       
-      <div class="mb-4 lg:mb-6">
-        <h2 class="text-lg lg:text-xl font-semibold text-white/90">
-          {selectedDate ? format(selectedDate, 'EEEE') : 'Select a date'}
+      <div class="p-3 lg:p-6 border-b border-white/5 flex-shrink-0 bg-white/5 backdrop-blur-md z-20">
+        <h2 class="text-base lg:text-xl font-semibold text-white/90">
+          {selectedDate ? format(selectedDate, 'EEEE, MMM do') : 'Select a date'}
         </h2>
-        <p class="text-xs lg:text-sm text-white/50">
-          {selectedDate ? format(selectedDate, 'MMMM do, yyyy') : ''}
-        </p>
       </div>
 
-      <div class="flex-1 overflow-y-auto space-y-3 lg:space-y-4 pr-1 custom-scrollbar pb-4">
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
         {#if !selectedDate}
           <div class="h-full flex flex-col items-center justify-center text-white/30 space-y-2">
-            <svg class="w-10 h-10 lg:w-12 lg:h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
             <span>Tap a day to view tasks</span>
           </div>
         {:else if selectedDayTasks.length === 0}
@@ -355,71 +316,72 @@
         {:else}
           {#each selectedDayTasks as task (task.id)}
             <div 
-              class="rounded-xl border border-white/5 bg-white/5 overflow-hidden transition-all duration-200 hover:border-white/10"
-              class:opacity-75={task.completed}
+              class="group relative rounded-xl border border-white/5 bg-white/5 overflow-hidden transition-all duration-200 active:scale-[0.99]"
+              class:opacity-60={task.completed}
             >
               <div class="p-3 flex items-start gap-3">
                 <button 
                   on:click={() => toggleTask(task.id)}
-                  class="mt-1 relative flex items-center justify-center w-5 h-5 rounded-full border-2 transition-all duration-300 flex-shrink-0
-                  {task.completed ? 'bg-green-500 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'border-white/30 hover:border-cyan-400'}"
+                  class="mt-1 relative flex items-center justify-center w-6 h-6 rounded-full border-2 transition-all duration-300 flex-shrink-0
+                  {task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-white/30'}"
                 >
                   {#if task.completed}
-                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
                   {/if}
                 </button>
                 
                 <div class="flex-1 min-w-0">
                   <div class="flex justify-between items-start">
-                    <span class="text-sm font-medium transition-all duration-300 block break-words {task.completed ? 'line-through text-white/50' : 'text-white/90'}">
+                    <span class="text-sm lg:text-base font-medium transition-all duration-300 block break-words {task.completed ? 'line-through text-white/50' : 'text-white/90'}">
                       {task.title}
                     </span>
-                    {#if task.isRecurring}
-                      <div title="Recurring task" class="text-white/30 ml-2">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                      </div>
-                    {/if}
+                    
+                    <button 
+                      on:click={(e) => requestDeleteTask(e, task.id)}
+                      class="p-1.5 -mt-1 -mr-1 text-white/30 hover:text-red-400 active:text-red-500 transition-colors"
+                      aria-label="Delete task"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
                   </div>
-                  
+
                   {#if task.subtasks.length > 0}
-                    <div class="mt-3 space-y-2 relative">
-                      <div class="absolute left-[-15px] top-0 bottom-2 w-px bg-white/10"></div>
-                      {#each task.subtasks as sub (sub.id)}
-                        <div class="flex items-center gap-3 relative">
-                          <div class="absolute left-[-15px] top-1/2 w-3 h-px bg-white/10"></div>
-                          <button 
-                            on:click={() => toggleSubTask(task.id, sub.id)}
-                            class="w-3 h-3 rounded-full border border-white/30 flex items-center justify-center transition-all
-                            {sub.completed ? 'bg-cyan-500 border-cyan-500' : 'hover:border-white/60'}"
-                          >
-                          </button>
-                          <span class="text-xs {sub.completed ? 'text-white/30 line-through' : 'text-white/70'}">{sub.title}</span>
-                        </div>
-                      {/each}
+                    <div class="mt-3 space-y-2 relative pl-2">
+                       <div class="absolute left-0 top-0 bottom-2 w-0.5 bg-white/10 rounded-full"></div>
+                       {#each task.subtasks as sub (sub.id)}
+                         <div class="flex items-center gap-3">
+                           <button 
+                             on:click={() => toggleSubTask(task.id, sub.id)}
+                             class="w-4 h-4 rounded border border-white/30 flex items-center justify-center transition-all
+                             {sub.completed ? 'bg-cyan-500 border-cyan-500' : ''}"
+                           >
+                             {#if sub.completed}<div class="w-2 h-2 bg-white rounded-sm"></div>{/if}
+                           </button>
+                           <span class="text-xs lg:text-sm {sub.completed ? 'text-white/30 line-through' : 'text-white/70'}">{sub.title}</span>
+                         </div>
+                       {/each}
                     </div>
                   {/if}
 
                   <div class="mt-2">
                     {#if activeSubTaskInput === task.id}
-                      <div class="flex items-center gap-2 mt-2 animate-in slide-in-from-top-1 fade-in duration-200">
-                        <div class="w-1.5 h-1.5 rounded-full bg-white/20"></div>
+                      <div class="flex items-center gap-2 mt-2 animate-in fade-in duration-200">
                         <input 
                           autoFocus
                           type="text"
                           bind:value={newSubTaskTitles[task.id]}
                           on:keydown={(e) => e.key === 'Enter' && addSubTask(task.id)}
                           on:blur={() => !newSubTaskTitles[task.id] && (activeSubTaskInput = null)}
-                          placeholder="Subtask name..."
-                          class="bg-transparent border-b border-white/20 text-xs text-white placeholder-white/20 focus:outline-none focus:border-cyan-400 w-full py-1"
+                          placeholder="Subtask..."
+                          class="bg-black/20 rounded px-2 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-cyan-400 w-full"
                         />
                       </div>
                     {:else}
                       <button 
                         on:click={() => openSubTaskInput(task.id)}
-                        class="text-[10px] text-white/30 hover:text-cyan-400 transition-colors flex items-center gap-1 mt-1"
+                        class="text-xs text-white/30 hover:text-cyan-400 flex items-center gap-1 mt-1 py-1"
                       >
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                        Add subtask
+                        + Subtask
                       </button>
                     {/if}
                   </div>
@@ -430,9 +392,9 @@
         {/if}
       </div>
 
-      <div class="mt-4 lg:mt-6 pt-4 lg:pt-6 border-t border-white/10">
-        <div class="flex gap-2">
-          <div class="relative group flex-1">
+      <div class="p-3 lg:p-6 border-t border-white/10 bg-white/5 backdrop-blur-md flex-shrink-0 mb-safe">
+        <div class="flex gap-3">
+          <div class="relative flex-1">
             <input 
               id="taskInput"
               bind:value={newTaskTitle}
@@ -440,43 +402,47 @@
               disabled={!selectedDate}
               type="text" 
               enterkeyhint="go" 
-              placeholder="Add a new main task..."
+              placeholder="Add task..."
               class="
-                w-full bg-black/20 border border-white/10 rounded-2xl px-4 lg:px-5 py-3 lg:py-4 pr-12 
-                focus:outline-none focus:bg-black/40 focus:border-cyan-500/50 focus:shadow-[0_0_20px_rgba(6,182,212,0.1)]
-                transition-all placeholder-white/30 text-white disabled:opacity-50 text-sm lg:text-base
+                w-full bg-black/30 border border-white/10 rounded-2xl px-4 py-3 pr-10
+                focus:outline-none focus:bg-black/50 focus:border-cyan-500/50 
+                transition-all placeholder-white/30 text-white disabled:opacity-50 text-base
               "
             />
             <button 
               on:click={addTask}
               disabled={!selectedDate || !newTaskTitle}
-              class="absolute right-2 top-2 lg:right-3 lg:top-3 p-1.5 lg:p-2 rounded-xl bg-white/10 hover:bg-cyan-500 hover:text-white text-white/50 transition-all disabled:opacity-0 disabled:scale-75"
+              class="absolute right-2 top-2 p-1.5 rounded-xl bg-cyan-600/80 text-white disabled:opacity-0 transition-all"
             >
-              <svg class="w-4 h-4 lg:w-5 lg:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             </button>
           </div>
           
           <button 
             on:click={() => showRecurringModal = true}
-            title="Recurring Task"
-            class="p-3 lg:p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-cyan-400/50 transition-all group"
+            class="p-3 rounded-2xl bg-white/5 border border-white/10 active:bg-white/20 transition-all"
           >
-            <svg class="w-5 h-5 lg:w-6 lg:h-6 text-white/50 group-hover:text-cyan-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <svg class="w-6 h-6 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
           </button>
         </div>
       </div>
-    </div>
-  </main>
+  </section>
   
   <RecurringTaskModal 
     bind:isOpen={showRecurringModal} 
     on:create={handleRecurringCreate} 
   />
 
+  <ConfirmModal 
+    bind:isOpen={showDeleteModal} 
+    message="Are you sure you want to delete this task? This cannot be undone."
+    confirmText="Delete Task"
+    on:confirm={confirmDeleteTask}
+  />
+
 </div>
 
 <style>
-  /* Faded Moving Gradient Background */
   .animated-gradient-bg {
     background: linear-gradient(-45deg, #1a1f2e, #4a4759, #3b5c66, #66424e);
     background-size: 400% 400%;
@@ -489,18 +455,18 @@
     100% { background-position: 0% 50%; }
   }
 
-  /* Scrollbar styles */
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.02);
+    background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
   }
 </style>
