@@ -16,9 +16,7 @@
     startOfToday
   } from 'date-fns';
   
-  // FIX 1: Import browser to check if we are running on the client
   import { browser } from '$app/environment';
-  
   import RecurringTaskModal from '$lib/components/RecurringTaskModal.svelte';
   import { onMount } from 'svelte';
 
@@ -49,6 +47,9 @@
   
   let tasks: Task[] = [];
   
+  // NEW: A flag to prevent saving empty data over your real data
+  let isLoaded = false;
+  
   let newTaskTitle = '';
   let newSubTaskTitles: Record<string, string> = {}; 
   let activeSubTaskInput: string | null = null; 
@@ -61,14 +62,12 @@
   $: days = generateCalendar(currentDate);
   $: selectedDayTasks = tasks.filter(t => selectedDate && isSameDay(t.date, selectedDate));
 
-  // ADD: Load tasks from local storage on startup
+  // --- LOAD Data ---
   onMount(() => {
-    // FIX 2: Only access localStorage in the browser
     if (browser) {
       const saved = localStorage.getItem('liquid-calendar-tasks');
       if (saved) {
         try {
-          // Restore dates from strings (JSON doesn't save Date objects)
           tasks = JSON.parse(saved, (key, value) => {
             if (key === 'date') return new Date(value);
             return value;
@@ -77,26 +76,19 @@
           console.error("Could not load tasks", e);
         }
       } else {
-        // Default data if nothing is saved
-        tasks = [
-          { 
-            id: '1', 
-            title: 'Welcome!', 
-            date: new Date(), 
-            completed: false, 
-            subtasks: [] 
-          }
-        ];
+         // Optional: Add default tasks only if it's the first time ever
+         // tasks = [... defaults ...];
       }
+      
+      // CRITICAL: Mark as loaded so the save logic can start working
+      isLoaded = true;
     }
   });
   
-  // ADD: Save to local storage whenever 'tasks' changes
-  $: if (tasks) {
-    // FIX 3: Robust check to prevent 500 Server Errors
-    if (browser) {
+  // --- SAVE Data ---
+  // FIX: Added '&& isLoaded' to prevent overwriting data on refresh
+  $: if (browser && isLoaded) {
       localStorage.setItem('liquid-calendar-tasks', JSON.stringify(tasks));
-    }
   }
 
   function generateCalendar(date: Date): CalendarDay[] {
@@ -124,7 +116,6 @@
   }
 
   function addTask() {
-    // Trim and check validity
     if (!newTaskTitle || !newTaskTitle.trim() || !selectedDate) return;
     
     const newTask: Task = {
@@ -139,10 +130,9 @@
     newTaskTitle = '';
   }
 
-  // Robust handler for Mobile Keyboards
   function handleInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      e.preventDefault(); // Prevent default form submission or newline
+      e.preventDefault(); 
       addTask();
     }
   }
